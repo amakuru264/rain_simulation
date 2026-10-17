@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>雨量計</title>
+<style>
+:root {
+    --bg: #050505;
+    --panel: #0e0e0e;
+    --line: #333333;
+    --text: #d8d8d8;
+    --dim: #808080;
+    --rain: #e6e6e6;
+    --needle: #ffffff;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
+    font-size: 13px;
+}
+
+#rain {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#panel {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    width: min(300px, calc(100vw - 32px));
+    padding: 14px;
+    background: rgba(14, 14, 14, 0.82);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    user-select: none;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.label { color: var(--dim); font-size: 12px; }
+
+section + section {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+
+/* segmented switch */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 2px; }
+.seg button {
+    width: auto;
+    padding: 4px 12px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--line); color: var(--text); }
+
+button:focus-visible,
+input:focus-visible { outline: 1px solid var(--needle); outline-offset: 2px; }
+
+/* readout */
+.readout {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 6px 0 10px;
+    font-family: var(--mono);
+}
+#rate {
+    font-size: 40px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    min-width: 4ch;
+    letter-spacing: -0.02em;
+}
+.unit { color: var(--dim); font-size: 12px; }
+
+/* meter */
+.meter {
+    position: relative;
+    height: 30px;
+    border: 1px solid var(--line);
+    background: #080808;
+}
+.meter .bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-right: 1px solid var(--rain);
+}
+.meter .ticks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(to right, var(--dim) 1px, transparent 1px) 0 100% / 25% 12px repeat-x,
+        linear-gradient(to right, var(--line) 1px, transparent 1px) 0 100% / 4.1667% 6px repeat-x;
+}
+.meter input[type=range] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: ew-resize;
+}
+.meter input[type=range]::-webkit-slider-runnable-track { background: transparent; height: 100%; }
+.meter input[type=range]::-moz-range-track { background: transparent; height: 100%; }
+.meter input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 3px; height: 30px;
+    background: var(--needle);
+    border: 0; border-radius: 0;
+}
+.meter input[type=range]::-moz-range-thumb {
+    width: 3px; height: 30px;
+    background: var(--needle);
+    border: 0; border-radius: 0;
+}
+.meter.auto input[type=range] { cursor: pointer; }
+
+.scale {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+}
+.scale span:first-child { transform: none; }
+
+.steps { display: flex; gap: 6px; margin-top: 10px; }
+.steps button {
+    flex: 1;
+    padding: 5px 0;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text);
+    font: 12px var(--mono);
+    cursor: pointer;
+}
+.steps button:hover { background: var(--line); }
+
+/* chart */
+#chart { width: 100%; height: 56px; display: block; margin-top: 8px; }
+
+/* sound */
+.volume { display: flex; align-items: center; gap: 10px; }
+.volume input { flex: 1; margin: 0; accent-color: var(--rain); }
+
+/* たたむボタン */
+#fold {
+    display: block;
+    width: 28px;
+    height: 22px;
+    margin: -4px 0 8px -6px;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--dim);
+    font-size: 14px;
+    line-height: 22px;
+    cursor: pointer;
+}
+#fold:hover { color: var(--text); background: var(--line); }
+#panel.folded { width: auto; padding: 6px; }
+#panel.folded #fold { margin: 0; }
+#panel.folded #body { display: none; }
+</style>
+</head>
+<body>
+
+<canvas id="rain"></canvas>
+
+<aside id="panel">
+    <button id="fold" aria-expanded="true" aria-label="パネルをたたむ">☰</button>
+    <div id="body">
+    <section>
+        <div class="row">
+            <span class="label">雨量</span>
+            <div class="seg" role="group" aria-label="雨量モード">
+                <button id="modeAuto" aria-pressed="true">自動</button>
+                <button id="modeManual" aria-pressed="false">手動</button>
+            </div>
+        </div>
+
+        <div class="readout">
+            <span id="rate">0</span><span class="unit">粒/秒</span>
+        </div>
+
+        <div class="meter auto" id="meter">
+            <div class="bar" id="bar"></div>
+            <div class="ticks"></div>
+            <input id="rateSlider" type="range" min="0" max="2400" step="10" value="600" aria-label="雨量の設定値">
+        </div>
+        <div class="scale"><span>0</span><span>600</span><span>1200</span><span>1800</span><span>2400</span></div>
+
+        <div class="steps">
+            <button id="weaker" aria-label="雨量を100下げる">−100</button>
+            <button id="stronger" aria-label="雨量を100上げる">+100</button>
+        </div>
+
+        <canvas id="chart"></canvas>
+        <div class="scale"><span>60秒前</span><span>現在</span></div>
+    </section>
+
+    <section>
+        <div class="volume">
+            <span class="label">音量</span>
+            <input id="volumeSlider" type="range" min="0" max="1" step="0.01" value="0.1" aria-label="音量">
+        </div>
+    </section>
+    </div>
+</aside>
+
+<script>
+(() => {
+"use strict";
+
+const $ = id => document.getElementById(id);
+
+//==================================================
+// 定数
+//==================================================
+const MAX_RATE = 2400;          // 粒/秒（元の 40個/フレーム × 60fps）
+const RAIN_COLOR = "235,235,235";
+const HISTORY_SEC = 60;
+const HISTORY_STEP = 0.25;      // 秒ごとに記録
+
+//==================================================
+// キャンバス（高解像度対応）
+//==================================================
+const canvas = $("rain");
+const ctx = canvas.getContext("2d");
+const chart = $("chart");
+const cctx = chart.getContext("2d");
+
+let W = 0, H = 0, dpr = 1;
+
+function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = "round";
+
+    const cw = chart.clientWidth, ch = chart.clientHeight;
+    chart.width = Math.round(cw * dpr);
+    chart.height = Math.round(ch * dpr);
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", resize);
+
+//==================================================
+// 状態
+//==================================================
+let mode = "auto";
+let target = 600;     // 手動時の設定値
+let rate = 600;       // 実際の発生量
+
+// 自動モード用
+let autoBase = 600;   // ゆるやかに動く基準の雨量
+let autoFrom = 600, autoTo = 600;
+let transT = 1, transDur = 45;   // 変化の進行（秒）
+let autoTimer = 0;    // 次に目標を変えるまでの秒数
+let clock = 0;
+const wanderPhase = [Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28];
+
+const AUTO_MIN_SEC = 60, AUTO_MAX_SEC = 300;   // 1〜5分
+const rateSlider = $("rateSlider");
+const meter = $("meter");
+
+function scheduleAuto() {
+    autoTimer = AUTO_MIN_SEC + Math.random() * (AUTO_MAX_SEC - AUTO_MIN_SEC);
+}
+
+function pickTarget() {
+    let t;
+    do {
+        t = 100 + Math.pow(Math.random(), 1.2) * 2200;
+    } while (Math.abs(t - autoBase) < 300);   // 変化が小さすぎないように
+    return Math.round(t / 10) * 10;
+}
+
+function setMode(m) {
+    if (m === mode) return;
+    if (m === "auto") {
+        // 現在の値から途切れなく自動へ
+        autoBase = rate - wander(autoBase);
+        autoFrom = autoTo = autoBase;
+        transT = transDur;
+        scheduleAuto();
+    } else {
+        // 現在の値のまま手動へ（急に値が飛ばないように）
+        setTarget(rate);
+    }
+    mode = m;
+    $("modeAuto").setAttribute("aria-pressed", m === "auto");
+    $("modeManual").setAttribute("aria-pressed", m === "manual");
+    meter.classList.toggle("auto", m === "auto");
+}
+
+function setTarget(v) {
+    target = Math.max(0, Math.min(MAX_RATE, v));
+    rateSlider.value = target;
+}
+
+// 手で触ったら自動的に手動モードへ
+rateSlider.addEventListener("input", () => {
+    setMode("manual");
+    setTarget(Number(rateSlider.value));
+});
+$("weaker").onclick   = () => { setMode("manual"); setTarget(target - 100); };
+$("stronger").onclick = () => { setMode("manual"); setTarget(target + 100); };
+$("modeAuto").onclick   = () => setMode("auto");
+$("modeManual").onclick = () => setMode("manual");
+
+//==================================================
+// 乱数
+//==================================================
+function gauss() {
+    let u = 0;
+    while (u === 0) u = Math.random();
+    const v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function randomPoisson(lambda) {
+    if (lambda <= 0) return 0;
+    if (lambda > 30) {   // 大きい値は正規近似
+        return Math.max(0, Math.round(lambda + Math.sqrt(lambda) * gauss()));
+    }
+    const L = Math.exp(-lambda);
+    let p = 1, k = 0;
+    do { k++; p *= Math.random(); } while (p > L);
+    return k - 1;
+}
+
+//==================================================
+// 雨量の変化
+//   自動：1〜5分ごとに目標が変わり、約45秒かけてなだらかに移行する。
+//         さらに、雨脚の強弱を表すごく小さな揺らぎが常に重なる。
+//   手動：設定値へすばやく追従する
+//==================================================
+function wander(base) {
+    // 周期の違うゆっくりした波を重ねる（強い雨ほど揺らぎも大きい）
+    const w = 45 * Math.sin(clock * 0.37 + wanderPhase[0])
+            + 30 * Math.sin(clock * 0.91 + wanderPhase[1])
+            + 25 * Math.sin(clock * 0.13 + wanderPhase[2]);
+    return w * (0.4 + 0.8 * Math.min(base / MAX_RATE, 1));
+}
+
+function smootherstep(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function updateRainAmount(dt) {
+    clock += dt;
+
+    if (mode === "auto") {
+        autoTimer -= dt;
+        if (autoTimer <= 0) {
+            autoFrom = autoBase;
+            autoTo = pickTarget();
+            transT = 0;
+            transDur = 35 + Math.random() * 20;
+            scheduleAuto();
+        }
+
+        if (transT < transDur) {
+            transT += dt;
+            autoBase = autoFrom + (autoTo - autoFrom) * smootherstep(transT / transDur);
+        }
+
+        rate = Math.max(0, Math.min(MAX_RATE, autoBase + wander(autoBase)));
+        rateSlider.value = autoBase;
+        return;
+    }
+
+    rate += (target - rate) * (1 - Math.exp(-dt / 0.8));
+}
+
+//==================================================
+// 雨粒
+//==================================================
+let drops = [];
+let splashes = [];
+
+function createDrop() {
+
+    return {
+
+        x: Math.random() * W,
+
+        y: -20 - Math.random() * 100,
+
+        length: 10 + Math.random() * 20,
+
+        speed: 10 + Math.random() * 15
+
+    };
+
+}
+
+//==================================================
+// 水しぶき
+//==================================================
+const splashParams = {
+
+    minCount: 2,
+    maxCount: 3,
+
+    minLife: 12,
+    maxLife: 20,
+
+    minLength: 5,
+    maxLength: 10,
+
+    lineWidth: 0.8,
+
+    color: `rgba(${RAIN_COLOR},0.8)`
+
+};
+
+function createSplash(x, y) {
+
+    const count =
+        splashParams.minCount +
+        Math.floor(
+            Math.random() *
+            (splashParams.maxCount - splashParams.minCount + 1)
+        );
+
+    for (let i = 0; i < count; i++) {
+
+        splashes.push({
+
+            x,
+            y,
+
+            vx: (Math.random() - 0.5) * 4,
+
+            vy: -(0.5 + Math.random() * 2),
+
+            phase: Math.random() * Math.PI * 2,
+
+            amplitude: 0.5 + Math.random(),
+
+            life:
+                splashParams.minLife +
+                Math.random() *
+                (splashParams.maxLife - splashParams.minLife),
+
+            length:
+                splashParams.minLength +
+                Math.random() *
+                (splashParams.maxLength - splashParams.minLength),
+
+            width: splashParams.lineWidth
+
+        });
+
+    }
+
+}
+
+function drawSplashes(step) {
+
+    ctx.strokeStyle = splashParams.color;
+
+    for (let i = splashes.length - 1; i >= 0; i--) {
+
+        const s = splashes[i];
+
+        const offsetX =
+            Math.sin(s.phase) * s.amplitude;
+
+        ctx.lineWidth = s.width;
+
+        ctx.beginPath();
+
+        ctx.moveTo(s.x, s.y);
+
+        ctx.lineTo(
+            s.x + offsetX + s.vx * s.length,
+            s.y + s.vy * s.length
+        );
+
+        ctx.stroke();
+
+        s.x += (s.vx + Math.sin(s.phase) * 0.1) * step;
+        s.y += s.vy * step;
+
+        s.vy += 0.1 * step;
+
+        s.phase += 0.2 * step;
+
+        s.life -= step;
+
+        if (s.life <= 0) {
+
+            splashes.splice(i, 1);
+
+        }
+
+    }
+
+}
+
+//==================================================
+// 雨生成・描画
+//==================================================
+function spawnRain(dt) {
+
+    // ポアソン分布で自然なばらつきを作る
+    const count = randomPoisson(rate * dt);
+
+    for (let i = 0; i < count; i++) {
+
+        drops.push(createDrop());
+
+    }
+
+}
+
+function drawRain(step) {
+
+    ctx.strokeStyle = `rgba(${RAIN_COLOR},0.65)`;
+    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
+
+    for (let i = drops.length - 1; i >= 0; i--) {
+
+        const d = drops[i];
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            d.x,
+            d.y
+        );
+
+        ctx.lineTo(
+            d.x,
+            d.y + d.length
+        );
+
+        ctx.stroke();
+
+        d.y += d.speed * step;
+
+        // 地面に到達したら消える
+        if (d.y > H) {
+
+            if (Math.random() < 0.3) {
+
+                createSplash(
+                    d.x,
+                    H
+                );
+
+            }
+
+            drops.splice(i, 1);
+
+        }
+
+    }
+
+}
+
+//==================================================
+// 雨音（音色・音量カーブは元のまま）
+//==================================================
+const MIN_GAIN = 0.05, MAX_GAIN = 0.25;
+const MIN_FREQ = 1200, MAX_FREQ = 2500;
+
+let audioCtx = null, master = null, gainNode = null, filter = null;
+
+const volumeSlider = $("volumeSlider");
+
+function setupAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const sr = audioCtx.sampleRate;
+
+    master = audioCtx.createGain();
+    master.gain.value = 1;
+
+    gainNode = audioCtx.createGain();
+    filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+
+    // 左右で独立したノイズ（ステレオの広がり）
+    const size = sr * 5;
+    const buffer = audioCtx.createBuffer(2, size, sr);
+    for (let c = 0; c < 2; c++) {
+        const data = buffer.getChannelData(c);
+        for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+    }
+
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+
+    // 残響（部屋/外気の広がり）：減衰するノイズをインパルス応答にする
+    const irLen = Math.floor(sr * 2.8);
+    const ir = audioCtx.createBuffer(2, irLen, sr);
+    for (let c = 0; c < 2; c++) {
+        const data = ir.getChannelData(c);
+        for (let i = 0; i < irLen; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 2.5);
+        }
+    }
+    const reverb = audioCtx.createConvolver();
+    reverb.buffer = ir;
+    const wet = audioCtx.createGain();
+    wet.gain.value = 0.35;
+
+    src.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(master);                 // 直接音
+    gainNode.connect(reverb);                 // 残響音
+    reverb.connect(wet);
+    wet.connect(master);
+    master.connect(audioCtx.destination);
+    src.start();
+
+    // 初期値を現在の雨量に合わせる
+    const k = Math.min(rate / MAX_RATE, 1);
+    gainNode.gain.value = Number(volumeSlider.value) * (MIN_GAIN + k * (MAX_GAIN - MIN_GAIN));
+    filter.frequency.value = MIN_FREQ + k * (MAX_FREQ - MIN_FREQ);
+}
+
+// ブラウザの仕様上、最初の操作があるまで音は出せない。操作されたら再生を始める
+function unlockAudio() {
+    if (!audioCtx) return;
+    audioCtx.resume();
+    if (audioCtx.state === "running") {
+        ["pointerdown", "keydown", "touchstart"].forEach(
+            e => window.removeEventListener(e, unlockAudio, true));
+    }
+}
+["pointerdown", "keydown", "touchstart"].forEach(
+    e => window.addEventListener(e, unlockAudio, true));
+
+function updateRainSound() {
+    if (!audioCtx) return;
+    const k = Math.min(rate / MAX_RATE, 1);
+    const t = audioCtx.currentTime;
+    gainNode.gain.setTargetAtTime(
+        Number(volumeSlider.value) * (MIN_GAIN + k * (MAX_GAIN - MIN_GAIN)), t, 0.3);
+    filter.frequency.setTargetAtTime(
+        MIN_FREQ + k * (MAX_FREQ - MIN_FREQ), t, 0.3);
+}
+
+//==================================================
+// 計器表示
+//==================================================
+const rateEl = $("rate"), barEl = $("bar");
+const history = new Array(HISTORY_SEC / HISTORY_STEP).fill(rate);
+let histTimer = 0, uiTimer = 0;
+
+function drawChart() {
+    const w = chart.clientWidth, h = chart.clientHeight;
+    cctx.clearRect(0, 0, w, h);
+
+    // 目盛り線
+    cctx.lineWidth = 1;
+    cctx.strokeStyle = "#333333";
+    for (let i = 0; i <= 4; i++) {
+        const y = Math.round(h - (i / 4) * (h - 1)) - 0.5;
+        cctx.beginPath(); cctx.moveTo(0, y); cctx.lineTo(w, y); cctx.stroke();
+    }
+
+    // 履歴
+    const n = history.length;
+    cctx.beginPath();
+    for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * w;
+        const y = h - 1 - Math.min(history[i] / MAX_RATE, 1) * (h - 2);
+        i === 0 ? cctx.moveTo(x, y) : cctx.lineTo(x, y);
+    }
+    cctx.strokeStyle = `rgb(${RAIN_COLOR})`;
+    cctx.lineWidth = 1.2;
+    cctx.stroke();
+    cctx.lineTo(w, h); cctx.lineTo(0, h); cctx.closePath();
+    cctx.fillStyle = `rgba(${RAIN_COLOR},0.12)`;
+    cctx.fill();
+}
+
+function updateInstruments(dt) {
+    histTimer += dt;
+    while (histTimer >= HISTORY_STEP) {
+        histTimer -= HISTORY_STEP;
+        history.push(rate);
+        history.shift();
+    }
+
+    uiTimer += dt;
+    if (uiTimer < 0.1) return;      // 表示更新は10Hz
+    uiTimer = 0;
+
+    rateEl.textContent = Math.round(rate);
+    barEl.style.width = (Math.min(rate / MAX_RATE, 1) * 100) + "%";
+    drawChart();
+}
+
+//==================================================
+// メインループ
+//==================================================
+let last = performance.now();
+
+function frame(now) {
+    requestAnimationFrame(frame);
+
+    // タブ復帰時などの大きな時間差を抑える
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    const step = dt * 60;           // 60fps基準のフレーム数
+
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, W, H);
+
+    updateRainAmount(dt);
+
+    spawnRain(dt);
+
+    drawRain(step);
+
+    drawSplashes(step);
+
+    updateRainSound();
+    updateInstruments(dt);
+}
+
+const panel = $("panel"), foldBtn = $("fold");
+foldBtn.onclick = () => {
+    const folded = panel.classList.toggle("folded");
+    foldBtn.setAttribute("aria-expanded", !folded);
+    foldBtn.setAttribute("aria-label", folded ? "パネルを開く" : "パネルをたたむ");
+    if (!folded) { resize(); drawChart(); }
+};
+
+resize();
+setupAudio();
+unlockAudio();
+setTarget(target);
+scheduleAuto();
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
